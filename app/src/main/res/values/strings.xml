@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="service_name">JARVIS Background Service</string>
+    <string name="service_notification_title">JARVIS AI Active</string>
+    <string name="service_notification_desc">System monitoring &amp; voice standby active</string>
+</resources>
+

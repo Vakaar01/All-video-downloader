@@ -1,0 +1,281 @@
+package com.example.ui
+
+import android.app.Application
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.api.GeminiApi
+import com.example.data.model.ChatMessage
+import com.example.data.model.DeviceTelemetry
+import com.example.data.model.JarvisPermissionStatus
+import com.example.data.model.MessageSender
+import com.example.engine.JarvisBrain
+import com.example.engine.SpeechManager
+import com.example.engine.SystemController
+import com.example.service.JarvisService
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+class JarvisViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = application.getSharedPreferences("jarvis_prefs", Context.MODE_PRIVATE)
+
+    val systemController = SystemController(application)
+
+    private val geminiApi = GeminiApi(
+        customApiKeyProvider = { prefs.getString("custom_api_key", null) }
+    )
+
+    val jarvisBrain = JarvisBrain(systemController, geminiApi)
+
+    private val _isListening = MutableStateFlow(false)
+    val isListening = _isListening.asStateFlow()
+
+    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val messages = _messages.asStateFlow()
+
+    private val _telemetry = MutableStateFlow(DeviceTelemetry())
+    val telemetry = _telemetry.asStateFlow()
+
+    private val _permissionStatus = MutableStateFlow(JarvisPermissionStatus())
+    val permissionStatus = _permissionStatus.asStateFlow()
+
+    private val _isSettingsOpen = MutableStateFlow(false)
+    val isSettingsOpen = _isSettingsOpen.asStateFlow()
+
+    private val _isProcessing = MutableStateFlow(false)
+    val isProcessing = _isProcessing.asStateFlow()
+
+    val isServiceRunning = JarvisService.isServiceRunning
+
+    val customApiKey = MutableStateFlow(prefs.getString("custom_api_key", "") ?: "")
+    val alwaysOnEnabled = MutableStateFlow(prefs.getBoolean("always_on_service", true))
+    val voiceOutputEnabled = MutableStateFlow(prefs.getBoolean("voice_output", true))
+    val speechPitch = MutableStateFlow(prefs.getFloat("speech_pitch", 0.95f))
+    val speechRate = MutableStateFlow(prefs.getFloat("speech_rate", 1.05f))
+
+    val speechManager = SpeechManager(
+        context = application,
+        onSpeechRecognized = { text ->
+            if (text.isNotBlank()) {
+                sendUserMessage(text)
+            }
+        },
+        onListeningStateChanged = { listening ->
+            _isListening.value = listening
+        }
+    ).apply {
+        isVoiceEnabled = voiceOutputEnabled.value
+        speechPitch = this@JarvisViewModel.speechPitch.value
+        speechRate = this@JarvisViewModel.speechRate.value
+    }
+
+    val isSpeaking = speechManager.isSpeaking
+    val audioRms = speechManager.audioRms
+
+    init {
+        // Initial boot welcome message
+        addMessage(
+            ChatMessage(
+                sender = MessageSender.JARVIS,
+                text = "JARVIS Mark LIII protocol online. Systems nominal, sir. All core sensors linked.",
+                actionTag = "⚡ SYSTEM_INIT"
+            )
+        )
+
+        // Sync speech engine to user settings
+        speechManager.speak("Systems initialized and online, sir.")
+
+        // Start periodic telemetry check
+        viewModelScope.launch {
+            while (isActive) {
+                _telemetry.value = systemController.getDeviceTelemetry()
+                checkPermissions()
+                delay(4000)
+            }
+        }
+
+        // If always-on service is enabled, launch it
+        if (alwaysOnEnabled.value) {
+            startAlwaysOnService()
+        }
+    }
+
+    fun checkPermissions() {
+        val app = getApplication<Application>()
+        val hasMic = ContextCompat.checkSelfPermission(
+            app,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val hasCamera = ContextCompat.checkSelfPermission(
+            app,
+            android.Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val hasNotif = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                app,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+
+        val isBatteryOptIgnored = systemController.isBatteryOptimizationIgnored()
+
+        _permissionStatus.value = JarvisPermissionStatus(
+            hasRecordAudio = hasMic,
+            hasPostNotifications = hasNotif,
+            hasCamera = hasCamera,
+            isBatteryOptimizationIgnored = isBatteryOptIgnored
+        )
+    }
+
+    fun toggleListening() {
+        if (_isListening.value) {
+            speechManager.stopListening()
+        } else {
+            speechManager.startListening()
+        }
+    }
+
+    fun sendUserMessage(text: String) {
+        val query = text.trim()
+        if (query.isBlank()) return
+
+        addMessage(
+            ChatMessage(
+                sender = MessageSender.USER,
+                text = query
+            )
+        )
+
+        _isProcessing.value = true
+
+        viewModelScope.launch {
+            val history = _messages.value.takeLast(6).map {
+                (if (it.sender == MessageSender.USER) "user" else "model") to it.text
+            }
+
+            val result = jarvisBrain.processCommand(
+                input = query,
+                telemetry = _telemetry.value,
+                conversationHistory = history
+            )
+
+            _isProcessing.value = false
+
+            addMessage(
+                ChatMessage(
+                    sender = MessageSender.JARVIS,
+                    text = result.replyText,
+                    actionTag = result.actionTag
+                )
+            )
+
+            // Refresh telemetry in case an action changed hardware state
+            _telemetry.value = systemController.getDeviceTelemetry()
+
+            // Speak response
+            speechManager.speak(result.replyText)
+        }
+    }
+
+    fun toggleFlashlight() {
+        val newState = systemController.toggleTorch()
+        _telemetry.value = systemController.getDeviceTelemetry()
+        val text = if (newState) "Flashlight illuminated, sir." else "Flashlight turned off, sir."
+        addMessage(
+            ChatMessage(
+                sender = MessageSender.JARVIS,
+                text = text,
+                actionTag = if (newState) "⚡ FLASH_ON" else "⚡ FLASH_OFF"
+            )
+        )
+        speechManager.speak(text)
+    }
+
+    fun startAlwaysOnService() {
+        JarvisService.startService(getApplication())
+    }
+
+    fun stopAlwaysOnService() {
+        JarvisService.stopService(getApplication())
+    }
+
+    fun requestIgnoreBatteryOptimization() {
+        systemController.requestIgnoreBatteryOptimizations()
+    }
+
+    fun openSettings() {
+        _isSettingsOpen.value = true
+    }
+
+    fun closeSettings() {
+        _isSettingsOpen.value = false
+    }
+
+    fun saveSettings(
+        apiKey: String,
+        alwaysOn: Boolean,
+        voiceOutput: Boolean,
+        pitch: Float,
+        rate: Float
+    ) {
+        prefs.edit().apply {
+            putString("custom_api_key", apiKey)
+            putBoolean("always_on_service", alwaysOn)
+            putBoolean("voice_output", voiceOutput)
+            putFloat("speech_pitch", pitch)
+            putFloat("speech_rate", rate)
+            apply()
+        }
+
+        customApiKey.value = apiKey
+        alwaysOnEnabled.value = alwaysOn
+        voiceOutputEnabled.value = voiceOutput
+        speechPitch.value = pitch
+        speechRate.value = rate
+
+        speechManager.isVoiceEnabled = voiceOutput
+        speechManager.speechPitch = pitch
+        speechManager.speechRate = rate
+
+        if (alwaysOn) {
+            startAlwaysOnService()
+        } else {
+            stopAlwaysOnService()
+        }
+
+        closeSettings()
+        addMessage(
+            ChatMessage(
+                sender = MessageSender.SYSTEM,
+                text = "JARVIS configuration updated & synchronized.",
+                actionTag = "⚙️ CONFIG_SAVED"
+            )
+        )
+    }
+
+    fun testVoice(pitch: Float, rate: Float) {
+        speechManager.speechPitch = pitch
+        speechManager.speechRate = rate
+        speechManager.isVoiceEnabled = true
+        speechManager.speak("All systems running at maximum efficiency, sir. How may I assist you?")
+    }
+
+    private fun addMessage(message: ChatMessage) {
+        _messages.value = _messages.value + message
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        speechManager.release()
+    }
+}
