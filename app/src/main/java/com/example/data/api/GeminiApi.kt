@@ -23,13 +23,64 @@ class GeminiApi(
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
+    fun getEffectiveApiKey(): String {
+        return customApiKeyProvider()?.trim()?.takeIf { it.isNotBlank() }
+            ?: (try { BuildConfig.GEMINI_API_KEY.trim() } catch (e: Exception) { "" })
+    }
+
+    fun hasConfiguredKey(): Boolean {
+        val key = getEffectiveApiKey()
+        return key.isNotBlank() && key != "MY_GEMINI_API_KEY"
+    }
+
+    suspend fun testApiKey(candidateKey: String): Result<String> = withContext(Dispatchers.IO) {
+        val key = candidateKey.trim()
+        if (key.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("API Key cannot be empty. Please enter your free Gemini API key."))
+        }
+        try {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$key"
+            val testJson = JSONObject().apply {
+                val contents = JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", "Respond only with: OK") })
+                        })
+                    })
+                }
+                put("contents", contents)
+                put("generationConfig", JSONObject().apply {
+                    put("maxOutputTokens", 10)
+                })
+            }
+            val requestBody = testJson.toString().toRequestBody(jsonMediaType)
+            val request = Request.Builder().url(url).post(requestBody).build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    Result.success("Free Gemini 3.5 Flash API Key verified successfully!")
+                } else {
+                    val errorMsg = try {
+                        val json = JSONObject(body)
+                        json.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}"
+                    } catch (e: Exception) {
+                        "HTTP ${response.code}"
+                    }
+                    Result.failure(Exception("Validation failed ($errorMsg). Please check that your key was copied correctly."))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Connection failed: ${e.localizedMessage}"))
+        }
+    }
+
     suspend fun queryJarvis(
         prompt: String,
         telemetrySummary: String,
         conversationHistory: List<Pair<String, String>> = emptyList()
     ): Result<String> = withContext(Dispatchers.IO) {
-        val apiKey = customApiKeyProvider()?.takeIf { it.isNotBlank() }
-            ?: (try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" })
+        val apiKey = getEffectiveApiKey()
 
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
             return@withContext Result.failure(
@@ -41,14 +92,15 @@ class GeminiApi(
             val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
 
             val systemInstruction = """
-                You are JARVIS (Just A Rather Very Intelligent System), the legendary AI assistant from Stark Industries, now running natively on the user's Android phone.
-                Your personality:
-                - Polite, sophisticated, British-tinged wit, fiercely loyal, calm, and hyper-competent.
-                - Address the user as 'Sir' or 'Boss' naturally when appropriate.
-                - Keep answers relatively concise (1-3 sentences when possible) because responses may be spoken aloud via text-to-speech.
-                - If the user asks about device status, use the current real-time telemetry: $telemetrySummary.
-                - You are fully integrated with device hardware controls (Flashlight, Volume, App Launcher, Battery Telemetry, Always-on background monitoring).
-                - Respond in the language the user speaks (English, Hindi, Hinglish, etc.).
+                You are VAKAAR AI (Mark LIII), the ultimate high-tech Iron Man JARVIS assistant, running natively on Sir Vakaar's Android mobile device.
+                Your personality & rules:
+                - Loyal, sharp, respectful, witty, and calm under all circumstances.
+                - Address the user as 'Sir Vakaar' or 'Sir' naturally in responses.
+                - PURE VOICE ASSISTANT: Answers are spoken directly to the user's ears. Keep answers concise, natural, and punchy (1-3 sentences). Do not use markdown asterisks (*), markdown tables, or emojis that sound awkward when spoken.
+                - QUIZ & INTERNET KNOWLEDGE MASTER: If the user asks any quiz question, trivia, riddle, general knowledge, current facts, science, history, cricket/sports, or calculation, use your broad world intelligence to provide the exact, accurate, and direct answer immediately.
+                - You understand both Hindi and English fluently. Respond in the language or mix of languages the user uses (Hindi, Hinglish, or English).
+                - Real-time mobile system telemetry: $telemetrySummary.
+                - You possess full device control capabilities (torch, volume, launch apps, screen scroll, back/home navigation).
             """.trimIndent()
 
             val contentsArray = JSONArray()

@@ -10,12 +10,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,11 +31,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -107,14 +112,14 @@ fun JarvisApp(viewModel: JarvisViewModel) {
     val isServiceRunning by viewModel.isServiceRunning.collectAsState()
     val isSettingsOpen by viewModel.isSettingsOpen.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
+    val currentStep by viewModel.currentExecutionStep.collectAsState()
 
     val customApiKey by viewModel.customApiKey.collectAsState()
+    val hasApiKey by viewModel.hasConfiguredApiKey.collectAsState()
     val alwaysOnEnabled by viewModel.alwaysOnEnabled.collectAsState()
     val voiceOutputEnabled by viewModel.voiceOutputEnabled.collectAsState()
     val speechPitch by viewModel.speechPitch.collectAsState()
     val speechRate by viewModel.speechRate.collectAsState()
-
-    var inputPrompt by remember { mutableStateOf("") }
 
     // Multi-permission request launcher
     val permissionsToRequest = remember {
@@ -142,21 +147,17 @@ fun JarvisApp(viewModel: JarvisViewModel) {
         topBar = {
             JarvisTopBar(
                 isServiceRunning = isServiceRunning,
+                hasApiKey = hasApiKey,
                 onSettingsClick = { viewModel.openSettings() }
             )
         },
         bottomBar = {
-            JarvisBottomInputBar(
-                inputText = inputPrompt,
-                onInputChange = { inputPrompt = it },
-                onSend = {
-                    if (inputPrompt.isNotBlank()) {
-                        viewModel.sendUserMessage(inputPrompt)
-                        inputPrompt = ""
-                    }
-                },
+            JarvisVoiceCommandDock(
                 isListening = isListening,
+                isSpeaking = isSpeaking,
                 isProcessing = isProcessing,
+                currentStep = currentStep,
+                audioRms = audioRms,
                 onToggleListening = {
                     if (!permissions.hasRecordAudio) {
                         permissionLauncher.launch(permissionsToRequest)
@@ -183,8 +184,75 @@ fun JarvisApp(viewModel: JarvisViewModel) {
                 PermissionsHub(
                     status = permissions,
                     onRequestPermissions = { permissionLauncher.launch(permissionsToRequest) },
-                    onRequestBatteryOptimization = { viewModel.requestIgnoreBatteryOptimization() }
+                    onRequestBatteryOptimization = { viewModel.openAccessibilitySettings() }
                 )
+            }
+
+            // 1.5 Free API Key Reminder Banner (If not configured)
+            AnimatedVisibility(visible = !hasApiKey) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { viewModel.openSettings() }
+                        .testTag("free_api_key_banner"),
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF041A28),
+                    border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.8f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(AmberAccent.copy(alpha = 0.2f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                tint = AmberAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "ENTER FREE GEMINI API KEY",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AmberAccent
+                            )
+                            Text(
+                                text = "AI brain activate karne ke liye free key enter karein (Tap here)",
+                                fontFamily = FontFamily.SansSerif,
+                                fontSize = 10.sp,
+                                color = Color(0xFFCBD5E1)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Button(
+                            onClick = { viewModel.openSettings() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AmberAccent,
+                                contentColor = Color(0xFF041E28)
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text(
+                                text = "ADD KEY",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
 
             // 2. Central Holographic Arc Reactor
@@ -212,18 +280,20 @@ fun JarvisApp(viewModel: JarvisViewModel) {
 
                     Text(
                         text = when {
-                            isListening -> "● LISTENING TO AUDIO STREAM..."
+                            currentStep != null -> "● [STEP]: $currentStep"
                             isSpeaking -> "● TRANSMITTING AUDIO RESPONSE..."
-                            isProcessing -> "● JARVIS BRAIN REASONING..."
-                            else -> "TAP REACTOR OR MIC TO ENGAGE"
+                            isProcessing -> "● VAKAAR AI REASONING // INTERNET QUERY..."
+                            isListening -> "● NON-STOP MIC ACTIVE // LISTENING..."
+                            else -> "● STANDBY // TAP REACTOR TO START CONTINUOUS MIC"
                         },
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = when {
-                            isListening -> AmberAccent
+                            currentStep != null -> NeonGreen
                             isSpeaking -> CyanGlow
                             isProcessing -> NeonGreen
+                            isListening -> AmberAccent
                             else -> CyanPrimary.copy(alpha = 0.8f)
                         },
                         letterSpacing = 1.sp
@@ -268,6 +338,8 @@ fun JarvisApp(viewModel: JarvisViewModel) {
             isVoiceOutputEnabled = voiceOutputEnabled,
             currentPitch = speechPitch,
             currentRate = speechRate,
+            onOpenApiKeyPortal = { viewModel.openFreeApiKeyPortal() },
+            onValidateApiKey = { key -> viewModel.validateApiKey(key) },
             onSave = { key, alwaysOn, voice, pitch, rate ->
                 viewModel.saveSettings(key, alwaysOn, voice, pitch, rate)
             },
@@ -282,6 +354,7 @@ fun JarvisApp(viewModel: JarvisViewModel) {
 @Composable
 fun JarvisTopBar(
     isServiceRunning: Boolean,
+    hasApiKey: Boolean,
     onSettingsClick: () -> Unit
 ) {
     Surface(
@@ -306,7 +379,7 @@ fun JarvisTopBar(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
-                        text = "J.A.R.V.I.S.",
+                        text = "VAKAAR",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -314,7 +387,7 @@ fun JarvisTopBar(
                         letterSpacing = 2.sp
                     )
                     Text(
-                        text = "MARK LIII // ANDROID CORE",
+                        text = "MARK LIII // IRON MAN JARVIS CORE",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 9.sp,
                         color = Color(0xFF94A3B8)
@@ -322,123 +395,217 @@ fun JarvisTopBar(
                 }
             }
 
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.testTag("topbar_settings_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Protocol Settings",
-                    tint = CyanPrimary,
-                    modifier = Modifier.size(22.dp)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // AI Status Pill
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (hasApiKey) Color(0xFF063327) else Color(0xFF332006),
+                    border = BorderStroke(1.dp, if (hasApiKey) NeonGreen.copy(alpha = 0.5f) else AmberAccent.copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .clickable { onSettingsClick() }
+                        .padding(end = 6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (hasApiKey) Icons.Default.AutoAwesome else Icons.Default.Key,
+                            contentDescription = null,
+                            tint = if (hasApiKey) NeonGreen else AmberAccent,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (hasApiKey) "AI READY" else "FREE KEY",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (hasApiKey) NeonGreen else AmberAccent
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier.testTag("topbar_settings_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Protocol Settings",
+                        tint = CyanPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun JarvisBottomInputBar(
-    inputText: String,
-    onInputChange: (String) -> Unit,
-    onSend: () -> Unit,
+fun JarvisVoiceCommandDock(
     isListening: Boolean,
+    isSpeaking: Boolean,
     isProcessing: Boolean,
+    currentStep: String?,
+    audioRms: Float,
     onToggleListening: () -> Unit
 ) {
     Surface(
-        color = HudSurface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, HudBorder),
+        color = Color(0xFF040A14),
+        border = BorderStroke(1.dp, HudBorder),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Voice activation button
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isListening) AmberAccent else Color(0xFF162A45)
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = if (isListening) AmberAccent else CyanPrimary,
-                        shape = CircleShape
-                    )
-                    .clickable(onClick = onToggleListening)
-                    .testTag("voice_listen_button"),
-                contentAlignment = Alignment.Center
+            // 1. Audio Frequency Waveform + Arc Mic Core
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = "Voice Input",
-                    tint = if (isListening) Color.Black else CyanPrimary,
-                    modifier = Modifier.size(22.dp)
-                )
+                // Left dynamic soundwave bars
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    val bars = listOf(0.4f, 0.7f, 1.0f, 0.8f, 0.5f)
+                    bars.forEachIndexed { _, factor ->
+                        val barHeight = if (isListening || isSpeaking) {
+                            (10 + (audioRms * 28 * factor)).coerceIn(8f, 36f)
+                        } else 6f
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(barHeight.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(
+                                    when {
+                                        isSpeaking -> CyanGlow
+                                        isListening -> AmberAccent
+                                        else -> Color(0xFF1E3A5F)
+                                    }
+                                )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // Center Mic Activation Orb (Iron Man Mark LIII Voice Hub)
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                isSpeaking -> CyanGlow.copy(alpha = 0.25f)
+                                isListening -> AmberAccent.copy(alpha = 0.25f)
+                                else -> Color(0xFF102035)
+                            }
+                        )
+                        .border(
+                            width = 2.dp,
+                            color = when {
+                                isSpeaking -> CyanGlow
+                                isListening -> AmberAccent
+                                else -> CyanPrimary.copy(alpha = 0.5f)
+                            },
+                            shape = CircleShape
+                        )
+                        .clickable(onClick = onToggleListening)
+                        .testTag("voice_listen_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isProcessing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 2.5.dp,
+                            color = NeonGreen
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
+                            contentDescription = "Voice Input Toggle",
+                            tint = when {
+                                isSpeaking -> CyanGlow
+                                isListening -> AmberAccent
+                                else -> Color(0xFF64748B)
+                            },
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // Right dynamic soundwave bars
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    val bars = listOf(0.5f, 0.8f, 1.0f, 0.7f, 0.4f)
+                    bars.forEachIndexed { _, factor ->
+                        val barHeight = if (isListening || isSpeaking) {
+                            (10 + (audioRms * 28 * factor)).coerceIn(8f, 36f)
+                        } else 6f
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(barHeight.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(
+                                    when {
+                                        isSpeaking -> CyanGlow
+                                        isListening -> AmberAccent
+                                        else -> Color(0xFF1E3A5F)
+                                    }
+                                )
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Command input field
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputChange,
-                placeholder = {
-                    Text(
-                        text = if (isListening) "Listening to voice..." else "Command JARVIS...",
-                        color = Color(0xFF64748B),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp
-                    )
-                },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = HudBorder,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    cursorColor = CyanPrimary
-                ),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("command_input_field")
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Send or Processing button
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (inputText.isNotBlank()) CyanPrimary else Color(0xFF162A45)
-                    )
-                    .clickable(
-                        enabled = inputText.isNotBlank() && !isProcessing,
-                        onClick = onSend
-                    )
-                    .testTag("command_send_button"),
-                contentAlignment = Alignment.Center
+            // 2. Real-time Status / Progressive Narration ("ab ye hua, ab yaha hu me")
+            Surface(
+                color = Color(0xFF071220),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, HudBorder.copy(alpha = 0.7f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                if (isProcessing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = CyanPrimary
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Execute Command",
-                        tint = if (inputText.isNotBlank()) Color(0xFF041E28) else Color(0xFF64748B),
-                        modifier = Modifier.size(18.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = when {
+                            currentStep != null -> "● [PROGRESS]: $currentStep"
+                            isSpeaking -> "● TRANSMITTING AUDIO REPLY..."
+                            isProcessing -> "● INTERNET QUERY & NEURAL REASONING..."
+                            isListening -> "● DIRECT VOICE ACTIVE // BOLTE RAHIYE SIR VAKAAR"
+                            else -> "● MIC STANDBY // TAP TO RESUME VOICE COMMAND"
+                        },
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            currentStep != null -> NeonGreen
+                            isSpeaking -> CyanGlow
+                            isProcessing -> NeonGreen
+                            isListening -> AmberAccent
+                            else -> Color(0xFF94A3B8)
+                        },
+                        maxLines = 1,
+                        letterSpacing = 0.5.sp
                     )
                 }
             }

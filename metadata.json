@@ -1,6 +1,6 @@
 {
-  "name": "JARVIS",
-  "description": "Always-on AI voice assistant with persistent background service, full device controls, system telemetry, speech recognition, and Gemini AI.",
+  "name": "VAKAAR",
+  "description": "Continuous always-on voice assistant with persistent listening, full device control, scroll/gesture navigation, Hindi & English NLP, and Iron Man JARVIS interface.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

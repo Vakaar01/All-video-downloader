@@ -1,7 +1,8 @@
 <resources>
-    <string name="app_name">JARVIS</string>
-    <string name="service_name">JARVIS Background Service</string>
-    <string name="service_notification_title">JARVIS AI Active</string>
-    <string name="service_notification_desc">System monitoring &amp; voice standby active</string>
+    <string name="app_name">VAKAAR</string>
+    <string name="service_name">VAKAAR Background Service</string>
+    <string name="service_notification_title">VAKAAR AI Active</string>
+    <string name="service_notification_desc">System monitoring &amp; continuous voice standby active</string>
+    <string name="accessibility_service_description">Enables VAKAAR voice navigation, scrolling, media control, and full device gesture commands.</string>
 </resources>
 

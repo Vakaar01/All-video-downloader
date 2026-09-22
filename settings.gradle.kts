@@ -22,7 +22,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "JARVIS"
+rootProject.name = "VAKAAR"
 
 
 include(":app")

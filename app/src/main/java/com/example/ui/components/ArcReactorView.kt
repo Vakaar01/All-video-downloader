@@ -10,13 +10,17 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.CyanGlow
 import com.example.ui.theme.CyanPrimary
@@ -196,28 +201,47 @@ fun ArcReactorView(
             )
         }
 
-        // Center Icon Indicator (Mic or Volume)
-        if (isListening) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "Microphone Listening",
-                tint = AmberAccent,
-                modifier = Modifier.size(34.dp)
+        // Center VAKAAR Holographic Core Indicator
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "VAKAAR",
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 13.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                color = when {
+                    isListening -> AmberAccent
+                    isSpeaking -> CyanGlow
+                    else -> CyanPrimary
+                },
+                letterSpacing = 1.5.sp
             )
-        } else if (isSpeaking) {
-            Icon(
-                imageVector = Icons.Default.VolumeUp,
-                contentDescription = "Jarvis Speaking",
-                tint = CyanGlow,
-                modifier = Modifier.size(34.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "Tap to Speak",
-                tint = CyanPrimary.copy(alpha = 0.85f),
-                modifier = Modifier.size(28.dp)
-            )
+            Spacer(modifier = Modifier.size(2.dp))
+            if (isListening) {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Microphone Active",
+                    tint = AmberAccent,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else if (isSpeaking) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                    contentDescription = "Vakaar Speaking",
+                    tint = CyanGlow,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Text(
+                    text = "MK-LIII",
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 8.sp,
+                    color = CyanPrimary.copy(alpha = 0.7f),
+                    letterSpacing = 1.sp
+                )
+            }
         }
     }
 }

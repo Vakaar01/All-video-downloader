@@ -239,4 +239,91 @@ class SystemController(private val context: Context) {
             Log.e("SystemController", "Failed to launch web search", e)
         }
     }
+
+    fun openUrl(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("SystemController", "Failed to open URL $url", e)
+        }
+    }
+
+    fun playVideoOrYoutube(query: String?): Boolean {
+        return try {
+            val intent = if (!query.isNullOrBlank()) {
+                Intent(Intent.ACTION_SEARCH).apply {
+                    setPackage("com.google.android.youtube")
+                    putExtra("query", query)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+            } else {
+                context.packageManager.getLaunchIntentForPackage("com.google.android.youtube")?.apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+            }
+            if (intent != null) {
+                context.startActivity(intent)
+                true
+            } else {
+                // Fallback to browser YouTube
+                val ytUrl = if (!query.isNullOrBlank()) {
+                    "https://www.youtube.com/results?search_query=${Uri.encode(query)}"
+                } else {
+                    "https://www.youtube.com"
+                }
+                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(ytUrl)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(browserIntent)
+                true
+            }
+        } catch (e: Exception) {
+            Log.e("SystemController", "Failed to play video/youtube", e)
+            false
+        }
+    }
+
+    fun scrollUp(): Boolean {
+        val service = com.example.service.JarvisAccessibilityService.instance
+        return service?.performScrollUpAction() ?: false
+    }
+
+    fun scrollDown(): Boolean {
+        val service = com.example.service.JarvisAccessibilityService.instance
+        return service?.performScrollDownAction() ?: false
+    }
+
+    fun goHome(): Boolean {
+        val service = com.example.service.JarvisAccessibilityService.instance
+        return service?.performHome() ?: false
+    }
+
+    fun goBack(): Boolean {
+        val service = com.example.service.JarvisAccessibilityService.instance
+        return service?.performBack() ?: false
+    }
+
+    fun openNotifications(): Boolean {
+        val service = com.example.service.JarvisAccessibilityService.instance
+        return service?.performNotifications() ?: false
+    }
+
+    fun openAccessibilitySettings() {
+        try {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("SystemController", "Failed to open accessibility settings", e)
+        }
+    }
+
+    fun isAccessibilityEnabled(): Boolean {
+        return com.example.service.JarvisAccessibilityService.isRunning
+    }
 }
+

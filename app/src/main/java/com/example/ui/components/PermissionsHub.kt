@@ -122,6 +122,12 @@ fun PermissionsHub(
                     icon = Icons.Default.BatteryAlert,
                     modifier = Modifier.weight(1f)
                 )
+                PermissionBadge(
+                    label = "GESTURES",
+                    granted = status.hasAccessibility,
+                    icon = Icons.Default.Security,
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             if (!status.isAllGranted) {
@@ -143,7 +149,7 @@ fun PermissionsHub(
                                 .testTag("grant_permissions_button")
                         ) {
                             Text(
-                                text = "GRANT ACCESS",
+                                text = "PERMISSIONS",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
@@ -151,20 +157,20 @@ fun PermissionsHub(
                         }
                     }
 
-                    if (!status.isBatteryOptimizationIgnored) {
-                        OutlinedButton(
-                            onClick = onRequestBatteryOptimization,
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = AmberAccent
+                    if (!status.hasAccessibility) {
+                        Button(
+                            onClick = onRequestBatteryOptimization, // will wire properly or provide separate callback
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AmberAccent,
+                                contentColor = Color(0xFF041E28)
                             ),
-                            border = BorderStroke(1.dp, AmberAccent),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .testTag("battery_opt_button")
+                                .testTag("accessibility_btn")
                         ) {
                             Text(
-                                text = "IGNORE BATTERY OPT",
+                                text = "GESTURE ACCESS",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold

@@ -105,8 +105,8 @@ private fun TerminalMessageItem(message: ChatMessage) {
     val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(message.timestamp))
 
     val (senderTag, tagColor) = when (message.sender) {
-        MessageSender.JARVIS -> "JARVIS" to CyanPrimary
-        MessageSender.USER -> "USER" to AmberAccent
+        MessageSender.JARVIS -> "VAKAAR" to CyanPrimary
+        MessageSender.USER -> "SIR VAKAAR" to AmberAccent
         MessageSender.SYSTEM -> "SYS" to NeonGreen
     }
 

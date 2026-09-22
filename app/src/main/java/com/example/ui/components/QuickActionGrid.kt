@@ -13,12 +13,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -76,23 +76,23 @@ fun QuickActionGrid(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ActionCard(
+                    icon = Icons.Default.PlayArrow,
+                    label = "Play Song",
+                    cmd = "video chalao latest trending song",
+                    onClick = onActionClick,
+                    modifier = Modifier.weight(1f)
+                )
+                ActionCard(
+                    icon = Icons.Default.Language,
+                    label = "Quiz Me",
+                    cmd = "Mujhe ek general knowledge quiz sawal pucho",
+                    onClick = onActionClick,
+                    modifier = Modifier.weight(1f)
+                )
+                ActionCard(
                     icon = Icons.Default.FlashlightOn,
                     label = "Torch",
-                    cmd = "toggle flashlight",
-                    onClick = onActionClick,
-                    modifier = Modifier.weight(1f)
-                )
-                ActionCard(
-                    icon = Icons.Default.VolumeUp,
-                    label = "Vol 80%",
-                    cmd = "set volume to 80%",
-                    onClick = onActionClick,
-                    modifier = Modifier.weight(1f)
-                )
-                ActionCard(
-                    icon = Icons.Default.Assessment,
-                    label = "Diagnostic",
-                    cmd = "run full diagnostics",
+                    cmd = "torch jalao",
                     onClick = onActionClick,
                     modifier = Modifier.weight(1f)
                 )
@@ -105,23 +105,23 @@ fun QuickActionGrid(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ActionCard(
-                    icon = Icons.Default.PlayArrow,
-                    label = "YouTube",
-                    cmd = "open youtube",
+                    icon = Icons.Default.Assessment,
+                    label = "Scroll Down",
+                    cmd = "niche scroll karo",
+                    onClick = onActionClick,
+                    modifier = Modifier.weight(1f)
+                )
+                ActionCard(
+                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                    label = "Vol 80%",
+                    cmd = "set volume to 80%",
                     onClick = onActionClick,
                     modifier = Modifier.weight(1f)
                 )
                 ActionCard(
                     icon = Icons.Default.CameraAlt,
-                    label = "Camera",
-                    cmd = "open camera",
-                    onClick = onActionClick,
-                    modifier = Modifier.weight(1f)
-                )
-                ActionCard(
-                    icon = Icons.Default.Language,
-                    label = "Search",
-                    cmd = "search news updates",
+                    label = "Diagnostics",
+                    cmd = "system diagnostics report do",
                     onClick = onActionClick,
                     modifier = Modifier.weight(1f)
                 )

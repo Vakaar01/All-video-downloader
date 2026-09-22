@@ -51,9 +51,13 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing = _isProcessing.asStateFlow()
 
+    private val _currentExecutionStep = MutableStateFlow<String?>(null)
+    val currentExecutionStep = _currentExecutionStep.asStateFlow()
+
     val isServiceRunning = JarvisService.isServiceRunning
 
     val customApiKey = MutableStateFlow(prefs.getString("custom_api_key", "") ?: "")
+    val hasConfiguredApiKey = MutableStateFlow(geminiApi.hasConfiguredKey())
     val alwaysOnEnabled = MutableStateFlow(prefs.getBoolean("always_on_service", true))
     val voiceOutputEnabled = MutableStateFlow(prefs.getBoolean("voice_output", true))
     val speechPitch = MutableStateFlow(prefs.getFloat("speech_pitch", 0.95f))
@@ -78,23 +82,27 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     val isSpeaking = speechManager.isSpeaking
     val audioRms = speechManager.audioRms
 
+    private val _isAccessibilityEnabled = MutableStateFlow(false)
+    val isAccessibilityEnabled = _isAccessibilityEnabled.asStateFlow()
+
     init {
         // Initial boot welcome message
         addMessage(
             ChatMessage(
                 sender = MessageSender.JARVIS,
-                text = "JARVIS Mark LIII protocol online. Systems nominal, sir. All core sensors linked.",
+                text = "VAKAAR Mark LIII protocol online. Systems nominal, Sir Vakaar. Non-stop voice engine listening.",
                 actionTag = "⚡ SYSTEM_INIT"
             )
         )
 
         // Sync speech engine to user settings
-        speechManager.speak("Systems initialized and online, sir.")
+        speechManager.speak("Namaste Sir Vakaar, systems online. Main aapki har command sun raha hu.")
 
         // Start periodic telemetry check
         viewModelScope.launch {
             while (isActive) {
                 _telemetry.value = systemController.getDeviceTelemetry()
+                _isAccessibilityEnabled.value = systemController.isAccessibilityEnabled()
                 checkPermissions()
                 delay(4000)
             }
@@ -128,12 +136,14 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         val isBatteryOptIgnored = systemController.isBatteryOptimizationIgnored()
+        val hasAccessibility = systemController.isAccessibilityEnabled()
 
         _permissionStatus.value = JarvisPermissionStatus(
             hasRecordAudio = hasMic,
             hasPostNotifications = hasNotif,
             hasCamera = hasCamera,
-            isBatteryOptimizationIgnored = isBatteryOptIgnored
+            isBatteryOptimizationIgnored = isBatteryOptIgnored,
+            hasAccessibility = hasAccessibility
         )
     }
 
@@ -166,9 +176,22 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             val result = jarvisBrain.processCommand(
                 input = query,
                 telemetry = _telemetry.value,
-                conversationHistory = history
+                conversationHistory = history,
+                onProgress = { stepText, actionTag ->
+                    _currentExecutionStep.value = stepText
+                    addMessage(
+                        ChatMessage(
+                            sender = MessageSender.JARVIS,
+                            text = stepText,
+                            actionTag = actionTag ?: "⚙️ STEP"
+                        )
+                    )
+                    // Speak progressive running commentary aloud!
+                    speechManager.speak(stepText)
+                }
             )
 
+            _currentExecutionStep.value = null
             _isProcessing.value = false
 
             addMessage(
@@ -182,7 +205,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             // Refresh telemetry in case an action changed hardware state
             _telemetry.value = systemController.getDeviceTelemetry()
 
-            // Speak response
+            // Speak final execution completion or answer
             speechManager.speak(result.replyText)
         }
     }
@@ -213,6 +236,18 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         systemController.requestIgnoreBatteryOptimizations()
     }
 
+    fun openAccessibilitySettings() {
+        systemController.openAccessibilitySettings()
+    }
+
+    fun openFreeApiKeyPortal() {
+        systemController.openUrl("https://aistudio.google.com/app/apikey")
+    }
+
+    suspend fun validateApiKey(key: String): Result<String> {
+        return geminiApi.testApiKey(key)
+    }
+
     fun openSettings() {
         _isSettingsOpen.value = true
     }
@@ -228,8 +263,9 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         pitch: Float,
         rate: Float
     ) {
+        val trimmedKey = apiKey.trim()
         prefs.edit().apply {
-            putString("custom_api_key", apiKey)
+            putString("custom_api_key", trimmedKey)
             putBoolean("always_on_service", alwaysOn)
             putBoolean("voice_output", voiceOutput)
             putFloat("speech_pitch", pitch)
@@ -237,7 +273,8 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             apply()
         }
 
-        customApiKey.value = apiKey
+        customApiKey.value = trimmedKey
+        hasConfiguredApiKey.value = geminiApi.hasConfiguredKey()
         alwaysOnEnabled.value = alwaysOn
         voiceOutputEnabled.value = voiceOutput
         speechPitch.value = pitch
@@ -254,10 +291,11 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         closeSettings()
+        val keyStatusText = if (trimmedKey.isNotBlank()) "Free Gemini API Key linked & active." else "API key cleared."
         addMessage(
             ChatMessage(
                 sender = MessageSender.SYSTEM,
-                text = "JARVIS configuration updated & synchronized.",
+                text = "VAKAAR configuration updated. $keyStatusText",
                 actionTag = "⚙️ CONFIG_SAVED"
             )
         )

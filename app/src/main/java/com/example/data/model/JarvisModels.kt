@@ -34,10 +34,11 @@ data class JarvisPermissionStatus(
     val hasRecordAudio: Boolean = false,
     val hasPostNotifications: Boolean = false,
     val hasCamera: Boolean = false,
-    val isBatteryOptimizationIgnored: Boolean = false
+    val isBatteryOptimizationIgnored: Boolean = false,
+    val hasAccessibility: Boolean = false
 ) {
     val isAllGranted: Boolean
-        get() = hasRecordAudio && hasPostNotifications && hasCamera && isBatteryOptimizationIgnored
+        get() = hasRecordAudio && hasPostNotifications && hasCamera && isBatteryOptimizationIgnored && hasAccessibility
 }
 
 data class QuickAction(
