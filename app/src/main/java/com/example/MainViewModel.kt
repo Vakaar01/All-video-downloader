@@ -6,12 +6,13 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
-import com.example.data.CobaltApiService
-import com.example.data.CobaltResult
 import com.example.data.DownloadEntity
 import com.example.data.DownloadStorageManager
+import com.example.data.ExtractedMediaInfo
+import com.example.data.ExtractionResult
 import com.example.data.MediaFormat
 import com.example.data.PlatformType
+import com.example.data.UniversalMediaExtractor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,21 +21,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
     private val downloadDao = db.downloadDao()
     private val storageManager = DownloadStorageManager(application)
-    private val cobaltApi = CobaltApiService()
+    private val mediaExtractor = UniversalMediaExtractor()
 
     val allDownloads: StateFlow<List<DownloadEntity>> = downloadDao.getAllDownloads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _url = MutableStateFlow("https://www.instagram.com/reel/C89xK1pv_9/")
+    private val _url = MutableStateFlow("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     val url: StateFlow<String> = _url.asStateFlow()
 
-    private val _selectedPlatform = MutableStateFlow(PlatformType.INSTAGRAM)
+    private val _selectedPlatform = MutableStateFlow(PlatformType.YOUTUBE)
     val selectedPlatform: StateFlow<PlatformType> = _selectedPlatform.asStateFlow()
 
     private val _isPlatformPickerOpen = MutableStateFlow(false)
@@ -49,7 +51,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _extractProgress = MutableStateFlow(0)
     val extractProgress: StateFlow<Int> = _extractProgress.asStateFlow()
 
-    private val _terminalStatus = MutableStateFlow("TERMINAL STANDBY // COBALT ENGINE READY")
+    private val _terminalStatus = MutableStateFlow("TERMINAL STANDBY // REAL STREAM ENGINE READY")
     val terminalStatus: StateFlow<String> = _terminalStatus.asStateFlow()
 
     private val _isExtractionComplete = MutableStateFlow(false)
@@ -67,9 +69,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastDownloadedFile = MutableStateFlow<DownloadEntity?>(null)
     val lastDownloadedFile: StateFlow<DownloadEntity?> = _lastDownloadedFile.asStateFlow()
 
-    // Cached direct media stream URL from Cobalt API
-    private val _cachedDirectStreamUrl = MutableStateFlow<String?>(null)
-    val cachedDirectStreamUrl: StateFlow<String?> = _cachedDirectStreamUrl.asStateFlow()
+    // Real extracted media metadata
+    private val _extractedMedia = MutableStateFlow<ExtractedMediaInfo?>(null)
+    val extractedMedia: StateFlow<ExtractedMediaInfo?> = _extractedMedia.asStateFlow()
 
     private var extractionJob: Job? = null
     private var downloadJob: Job? = null
@@ -78,7 +80,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _url.value = newUrl
         _isExtractionComplete.value = false
         _extractProgress.value = 0
-        _cachedDirectStreamUrl.value = null
+        _extractedMedia.value = null
         val detected = PlatformType.detectFromUrl(newUrl)
         if (detected != PlatformType.OTHER) {
             _selectedPlatform.value = detected
@@ -101,7 +103,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _url.value = ""
         _isExtractionComplete.value = false
         _extractProgress.value = 0
-        _cachedDirectStreamUrl.value = null
+        _extractedMedia.value = null
         _terminalStatus.value = "INPUT BUFFER CLEARED"
     }
 
@@ -118,6 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPlatformPickerOpen.value = false
         _isExtractionComplete.value = false
         _extractProgress.value = 0
+        _extractedMedia.value = null
         _terminalStatus.value = "TARGET PLATFORM LOCKED: ${platform.displayName.uppercase()}"
     }
 
@@ -140,94 +143,112 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isExtracting.value = true
             _isExtractionComplete.value = false
             _extractProgress.value = 0
-            _cachedDirectStreamUrl.value = null
+            _extractedMedia.value = null
 
-            _terminalStatus.value = "COBALT PIPELINE: Initializing extraction handshake..."
-            for (p in 1..20) {
+            _terminalStatus.value = "CONNECTING: Resolving host for ${_selectedPlatform.value.displayName}..."
+            for (p in 1..25) {
                 _extractProgress.value = p
                 delay(12)
             }
 
-            _terminalStatus.value = "COBALT INSTANCE: Resolving ${_selectedPlatform.value.displayName} cipher..."
-            for (p in 21..50) {
+            _terminalStatus.value = "ANALYZING: Decoding media manifests and CDN streams..."
+            for (p in 26..55) {
                 _extractProgress.value = p
                 delay(12)
             }
 
-            // Real Cobalt API request in background
-            val cobaltResult = cobaltApi.extractMediaStream(_url.value, MediaFormat.ORIGINAL_MP4)
+            // Real multi-engine extraction
+            val result = mediaExtractor.extract(_url.value, _selectedPlatform.value, MediaFormat.ORIGINAL_MP4)
 
-            for (p in 51..85) {
+            for (p in 56..85) {
                 _extractProgress.value = p
                 delay(10)
             }
 
-            when (cobaltResult) {
-                is CobaltResult.Success -> {
-                    _cachedDirectStreamUrl.value = cobaltResult.streamUrl
-                    _terminalStatus.value = "COBALT SUCCESS: Stream decoded via ${cobaltResult.instanceUsed}"
+            when (result) {
+                is ExtractionResult.Success -> {
+                    _extractedMedia.value = result.media
+                    for (p in 86..100) {
+                        _extractProgress.value = p
+                        delay(6)
+                    }
+                    _isExtractionComplete.value = true
+                    _terminalStatus.value = "STREAM UNLOCKED [${result.media.provider}] // Title: ${result.media.title.take(35)}"
                 }
-                is CobaltResult.Error -> {
-                    _terminalStatus.value = "COBALT STREAM READY // DIRECT DECODE ACTIVE"
+                is ExtractionResult.Error -> {
+                    _isExtractionComplete.value = false
+                    _extractProgress.value = 0
+                    _terminalStatus.value = "EXTRACTION FAILED: ${result.message}"
                 }
-            }
-
-            for (p in 86..100) {
-                _extractProgress.value = p
-                delay(8)
             }
 
             _isExtracting.value = false
-            _isExtractionComplete.value = true
         }
     }
 
     fun onDownloadFormat(format: MediaFormat) {
         if (_isDownloading.value) return
 
+        val extracted = _extractedMedia.value
+        val streamUrlToUse = if (format == MediaFormat.AUDIO_MP3) {
+            extracted?.directAudioUrl ?: extracted?.directVideoUrl ?: _url.value
+        } else {
+            extracted?.directVideoUrl ?: _url.value
+        }
+
+        if (streamUrlToUse.isBlank()) {
+            _terminalStatus.value = "PLEASE EXTRACT A VALID STREAM FIRST"
+            return
+        }
+
         downloadJob?.cancel()
         downloadJob = viewModelScope.launch {
             _isDownloading.value = true
             _downloadProgress.value = 0
-            _downloadSpeedStatus.value = "INITIALIZING COBALT STORAGE PIPELINE..."
+            _downloadSpeedStatus.value = "CONNECTING TO REAL CDN STREAM..."
+            _terminalStatus.value = "DOWNLOADING: Initializing real byte stream from CDN..."
 
-            var streamUrlToUse = _cachedDirectStreamUrl.value
-
-            // If audio format requested and we didn't extract audio yet, query Cobalt for MP3
-            if (format == MediaFormat.AUDIO_MP3 && (streamUrlToUse == null || !streamUrlToUse.contains(".mp3"))) {
-                _downloadSpeedStatus.value = "FETCHING AUDIO STREAM VIA COBALT..."
-                when (val audioRes = cobaltApi.extractMediaStream(_url.value, MediaFormat.AUDIO_MP3)) {
-                    is CobaltResult.Success -> {
-                        streamUrlToUse = audioRes.streamUrl
-                    }
-                    is CobaltResult.Error -> {
-                        // Use existing or fallback
+            try {
+                val entity = storageManager.saveMediaFile(
+                    platform = _selectedPlatform.value,
+                    format = format,
+                    inputUrl = _url.value,
+                    directMediaUrl = streamUrlToUse,
+                    mediaTitle = extracted?.title
+                ) { percent, readBytes, totalBytes, speedMbps ->
+                    _downloadProgress.value = percent
+                    val mbRead = readBytes.toDouble() / (1024 * 1024)
+                    if (totalBytes > 0) {
+                        val mbTotal = totalBytes.toDouble() / (1024 * 1024)
+                        _downloadSpeedStatus.value = String.format(
+                            Locale.US,
+                            "DOWNLOADING REAL STREAM [%.1f / %.1f MB] @ %.2f MB/s",
+                            mbRead,
+                            mbTotal,
+                            speedMbps
+                        )
+                    } else {
+                        _downloadSpeedStatus.value = String.format(
+                            Locale.US,
+                            "STREAMING REAL BYTES [%.1f MB TRANSFERRED] @ %.2f MB/s",
+                            mbRead,
+                            speedMbps
+                        )
                     }
                 }
-            }
 
-            val entity = storageManager.saveMediaFile(
-                platform = _selectedPlatform.value,
-                format = format,
-                inputUrl = _url.value,
-                directMediaUrl = streamUrlToUse
-            ) { percent, readBytes, totalBytes ->
-                _downloadProgress.value = percent
-                val mbRead = readBytes.toDouble() / (1024 * 1024)
-                val mbTotal = totalBytes.toDouble() / (1024 * 1024)
-                _downloadSpeedStatus.value = String.format(
-                    java.util.Locale.US,
-                    "WRITING TO /sdcard/vakaar/ [%.1f / %.1f MB] @ 18.4 MB/s",
-                    mbRead,
-                    mbTotal
-                )
+                downloadDao.insertDownload(entity)
+                _lastDownloadedFile.value = entity
+                _downloadProgress.value = 100
+                _downloadSpeedStatus.value = "SUCCESS: SAVED IN /sdcard/Download/vakaar/ (${entity.formattedSize})"
+                _terminalStatus.value = "COMPLETED: Real media file saved (${entity.formattedSize})"
+            } catch (e: Exception) {
+                _downloadProgress.value = 0
+                _downloadSpeedStatus.value = "DOWNLOAD FAILED: ${e.message}"
+                _terminalStatus.value = "DOWNLOAD FAILED: ${e.message?.take(50)}"
+            } finally {
+                _isDownloading.value = false
             }
-
-            downloadDao.insertDownload(entity)
-            _lastDownloadedFile.value = entity
-            _downloadProgress.value = 100
-            _isDownloading.value = false
-            _downloadSpeedStatus.value = "SUCCESS: FILE PERSISTED IN /sdcard/vakaar/"
         }
     }
 

@@ -9,26 +9,40 @@ import android.provider.MediaStore
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class DownloadStorageManager(private val context: Context) {
 
     private val tag = "VakaarStorage"
 
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
     suspend fun saveMediaFile(
         platform: PlatformType,
         format: MediaFormat,
         inputUrl: String,
-        directMediaUrl: String? = null,
-        onProgress: (Int, Long, Long) -> Unit
+        directMediaUrl: String?,
+        mediaTitle: String? = null,
+        onProgress: (Int, Long, Long, Double) -> Unit // percent, bytesRead, totalBytes, speedMbps
     ): DownloadEntity = withContext(Dispatchers.IO) {
+        val streamUrl = directMediaUrl?.trim() ?: inputUrl.trim()
+        if (streamUrl.isBlank() || (!streamUrl.startsWith("http://") && !streamUrl.startsWith("https://"))) {
+            throw IOException("No valid media stream URL was found. Please verify the URL.")
+        }
+
         val timestamp = System.currentTimeMillis()
         val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(timestamp))
         val cleanPlatform = platform.displayName.replace("[^a-zA-Z0-9]".toRegex(), "").lowercase()
@@ -41,93 +55,80 @@ class DownloadStorageManager(private val context: Context) {
         }
         val targetLocalFile = File(vakaarDir, fileName)
 
+        Log.d(tag, "Starting real stream download from: $streamUrl into: ${targetLocalFile.absolutePath}")
+
+        val request = Request.Builder()
+            .url(streamUrl)
+            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .addHeader("Accept", "*/*")
+            .addHeader("Referer", inputUrl)
+            .build()
+
         var totalBytesRead: Long = 0
-        var expectedBytes: Long = when (format) {
-            MediaFormat.ORIGINAL_MP4 -> 24L * 1024 * 1024 // ~24MB
-            MediaFormat.HD_MP4 -> 48L * 1024 * 1024       // ~48MB
-            MediaFormat.AUDIO_MP3 -> 6L * 1024 * 1024      // ~6MB
-        }
+        var totalBytesExpected: Long = -1
 
-        var isRealHttpDownloaded = false
+        val startTime = System.currentTimeMillis()
+        var lastProgressUpdateTime = startTime
 
-        // Attempt actual HTTP streaming from Cobalt extracted URL or direct media URL
-        val downloadSourceUrl = if (!directMediaUrl.isNullOrBlank()) directMediaUrl else inputUrl
-        if (downloadSourceUrl.startsWith("http://", ignoreCase = true) || downloadSourceUrl.startsWith("https://", ignoreCase = true)) {
-            try {
-                val connection = (URL(downloadSourceUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000
-                    readTimeout = 20000
-                    requestMethod = "GET"
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    instanceFollowRedirects = true
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("HTTP error ${response.code}: ${response.message}")
                 }
-                val code = connection.responseCode
-                val contentType = connection.contentType ?: ""
-                val isDirectMedia = directMediaUrl != null ||
-                        contentType.contains("video", true) ||
-                        contentType.contains("audio", true) ||
-                        contentType.contains("octet-stream", true) ||
-                        downloadSourceUrl.contains(".mp4", true) ||
-                        downloadSourceUrl.contains(".mp3", true)
 
-                if (code in 200..299 && isDirectMedia) {
-                    val streamLen = connection.contentLengthLong
-                    if (streamLen > 0) expectedBytes = streamLen
-                    val inputStream: InputStream = connection.inputStream
-                    val outputStream = FileOutputStream(targetLocalFile)
-                    val buffer = ByteArray(32 * 1024)
-                    var bytes: Int
-                    while (inputStream.read(buffer).also { bytes = it } != -1) {
-                        outputStream.write(buffer, 0, bytes)
-                        totalBytesRead += bytes
-                        val percent = if (expectedBytes > 0) {
-                            ((totalBytesRead * 100) / expectedBytes).toInt().coerceIn(0, 99)
-                        } else 50
-                        onProgress(percent, totalBytesRead, expectedBytes)
+                val body = response.body ?: throw IOException("Empty response body from media server")
+                totalBytesExpected = body.contentLength()
+
+                val inputStream = body.byteStream()
+                val outputStream = FileOutputStream(targetLocalFile)
+                val buffer = ByteArray(64 * 1024) // 64KB buffer for fast transfer
+                var bytesRead: Int
+
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    outputStream.write(buffer, 0, bytesRead)
+                    totalBytesRead += bytesRead
+
+                    val now = System.currentTimeMillis()
+                    // Throttle UI progress updates to every 120ms to avoid UI stutter
+                    if (now - lastProgressUpdateTime > 120 || totalBytesRead == totalBytesExpected) {
+                        val elapsedSec = (now - startTime).coerceAtLeast(1) / 1000.0
+                        val currentSpeedMbps = (totalBytesRead / (elapsedSec * 1024.0 * 1024.0))
+
+                        val percent = if (totalBytesExpected > 0) {
+                            ((totalBytesRead * 100) / totalBytesExpected).toInt().coerceIn(0, 99)
+                        } else {
+                            50 // Indeterminate stream
+                        }
+
+                        onProgress(percent, totalBytesRead, totalBytesExpected, currentSpeedMbps)
+                        lastProgressUpdateTime = now
                     }
-                    outputStream.flush()
-                    outputStream.close()
-                    inputStream.close()
-                    isRealHttpDownloaded = true
-                    onProgress(100, totalBytesRead, totalBytesRead)
                 }
-            } catch (e: Exception) {
-                Log.d(tag, "Direct media fetch failed or skipped, creating fallback package: ${e.message}")
+
+                outputStream.flush()
+                outputStream.close()
+                inputStream.close()
             }
+        } catch (e: Exception) {
+            // Delete corrupt incomplete file if download failed
+            if (targetLocalFile.exists() && targetLocalFile.length() == 0L) {
+                targetLocalFile.delete()
+            }
+            Log.e(tag, "Download failed: ${e.message}", e)
+            throw IOException("Download failed: ${e.message ?: "Connection error"}")
         }
 
-        // If direct stream wasn't available (e.g. social media complex page), create synthesized cyberpunk media package
-        if (!isRealHttpDownloaded) {
-            val outputStream = FileOutputStream(targetLocalFile)
-            val chunk = ByteArray(64 * 1024) // 64KB chunks
-            java.util.Arrays.fill(chunk, 0x56.toByte()) // Vakaar signature byte 'V'
-
-            // Write format header
-            val headerString = "VAKAAR_CYBER_ENCRYPTED_STREAM_HOST=${platform.displayName}_FORMAT=${format.title}\n"
-            outputStream.write(headerString.toByteArray())
-            totalBytesRead += headerString.length
-
-            val simulatedTotal = when (format) {
-                MediaFormat.ORIGINAL_MP4 -> 18L * 1024 * 1024
-                MediaFormat.HD_MP4 -> 35L * 1024 * 1024
-                MediaFormat.AUDIO_MP3 -> 4L * 1024 * 1024
-            }
-
-            // Write simulated stream with animated updates
-            val totalSteps = 20
-            val bytesPerStep = simulatedTotal / totalSteps
-            for (step in 1..totalSteps) {
-                outputStream.write(chunk)
-                totalBytesRead += bytesPerStep
-                val progress = ((step * 100) / totalSteps).coerceIn(0, 100)
-                onProgress(progress, totalBytesRead, simulatedTotal)
-                kotlinx.coroutines.delay(70)
-            }
-            outputStream.flush()
-            outputStream.close()
+        val downloadedFileSize = targetLocalFile.length()
+        if (downloadedFileSize == 0L) {
+            throw IOException("Download failed: received 0 bytes from server")
         }
 
-        // Also register in Android's public Downloads/vakaar directory via MediaStore (Scoped Storage compliant)
+        // Final 100% progress notification
+        val totalElapsedSec = (System.currentTimeMillis() - startTime).coerceAtLeast(1) / 1000.0
+        val avgSpeedMbps = (downloadedFileSize / (totalElapsedSec * 1024.0 * 1024.0))
+        onProgress(100, downloadedFileSize, downloadedFileSize, avgSpeedMbps)
+
+        // Mirror to Android public Downloads/vakaar directory via MediaStore
         var publicPath = targetLocalFile.absolutePath
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -136,7 +137,11 @@ class DownloadStorageManager(private val context: Context) {
                     put(MediaStore.MediaColumns.MIME_TYPE, format.mimeType)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/vakaar")
                 }
-                val contentUri = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val contentUri = if (format.isAudio) {
+                    MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                }
                 val uri: Uri? = context.contentResolver.insert(contentUri, contentValues)
                 if (uri != null) {
                     context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -158,19 +163,32 @@ class DownloadStorageManager(private val context: Context) {
             Log.e(tag, "Could not mirror to public MediaStore: ${e.message}")
         }
 
-        val sizeMb = String.format(Locale.US, "%.1f MB", targetLocalFile.length().toDouble() / (1024 * 1024))
-        val itemTitle = "${platform.displayName} - ${format.title.take(16)}"
+        val formattedSize = formatFileSize(downloadedFileSize)
+        val displayTitle = if (!mediaTitle.isNullOrBlank()) {
+            mediaTitle.take(45)
+        } else {
+            "${platform.displayName} Video (${format.title})"
+        }
 
         DownloadEntity(
-            title = itemTitle,
+            title = displayTitle,
             originalUrl = inputUrl,
             platformName = platform.displayName,
             formatName = format.title,
-            fileSizeBytes = targetLocalFile.length(),
-            formattedSize = sizeMb,
+            fileSizeBytes = downloadedFileSize,
+            formattedSize = formattedSize,
             filePath = publicPath,
             timestamp = timestamp,
             isAudio = format.isAudio
         )
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f GB", bytes.toDouble() / (1024.0 * 1024.0 * 1024.0))
+            bytes >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes.toDouble() / (1024.0 * 1024.0))
+            bytes >= 1024L -> String.format(Locale.US, "%.1f KB", bytes.toDouble() / 1024.0)
+            else -> "$bytes B"
+        }
     }
 }
