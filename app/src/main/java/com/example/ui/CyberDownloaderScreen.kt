@@ -74,6 +74,7 @@ fun CyberDownloaderScreen(
     val downloadSpeedStatus by viewModel.downloadSpeedStatus.collectAsStateWithLifecycle()
     val lastDownloadedFile by viewModel.lastDownloadedFile.collectAsStateWithLifecycle()
     val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+    val extractedMedia by viewModel.extractedMedia.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -147,7 +148,7 @@ fun CyberDownloaderScreen(
                     }
 
                     Text(
-                        text = "DESTINATION: /sdcard/vakaar/",
+                        text = "DESTINATION: /sdcard/Download/vakaar/",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = TextSecondary,
                             fontSize = 10.sp
@@ -195,6 +196,7 @@ fun CyberDownloaderScreen(
                     exit = fadeOut() + slideOutVertically()
                 ) {
                     FormatSelectionCard(
+                        mediaInfo = extractedMedia,
                         onSelectFormat = { format -> viewModel.onDownloadFormat(format) },
                         isDownloading = isDownloading
                     )

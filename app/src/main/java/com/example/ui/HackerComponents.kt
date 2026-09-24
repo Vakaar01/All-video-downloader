@@ -571,6 +571,7 @@ fun CyberProgressSection(
 fun FormatSelectionCard(
     onSelectFormat: (MediaFormat) -> Unit,
     isDownloading: Boolean,
+    mediaInfo: com.example.data.ExtractedMediaInfo? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -588,7 +589,7 @@ fun FormatSelectionCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "[+] SELECT TARGET FORMAT",
+                text = "[+] SELECT DOWNLOAD FORMAT",
                 style = MaterialTheme.typography.titleMedium.copy(
                     color = CyberCyan,
                     fontWeight = FontWeight.Bold,
@@ -596,12 +597,51 @@ fun FormatSelectionCard(
                 )
             )
             Text(
-                text = "SAVED TO /sdcard/vakaar/",
+                text = "DEST: /sdcard/Download/vakaar/",
                 style = MaterialTheme.typography.labelSmall.copy(
                     color = CyberGreen,
                     fontSize = 10.sp
                 )
             )
+        }
+
+        if (mediaInfo != null && mediaInfo.title.isNotBlank()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(CyberBlack.copy(alpha = 0.7f))
+                    .border(BorderStroke(0.8.dp, CyberCardBorder), RoundedCornerShape(6.dp))
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = CyberGreen,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = mediaInfo.title,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        ),
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "Source: ${mediaInfo.provider} // Quality: ${mediaInfo.quality}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = CyberYellow,
+                            fontSize = 10.sp
+                        )
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
