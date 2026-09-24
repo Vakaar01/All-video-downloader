@@ -62,7 +62,26 @@ class UniversalMediaExtractor {
     ): ExtractionResult = withContext(Dispatchers.IO) {
         val trimmed = url.trim()
         if (trimmed.isBlank()) {
-            return@withContext ExtractionResult.Error("URL cannot be empty")
+            return@withContext ExtractionResult.Error("URL EMPTY: Kripya video ya reel ka link daalein.")
+        }
+
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.contains(".")) {
+            return@withContext ExtractionResult.Error("INVALID URL: Ye valid web link nahi hai. Pura link paste karein jaise https://...")
+        }
+
+        // Specific URL format check
+        if (trimmed.contains("youtube.com") || trimmed.contains("youtu.be")) {
+            val vid = parseVideoOrMediaId(trimmed)
+            if (vid.isBlank() && !trimmed.contains("/watch") && !trimmed.contains("/shorts/")) {
+                return@withContext ExtractionResult.Error("URL BREAK / INCOMPLETE: YouTube video link adhoora hai. Pura share link paste karein.")
+            }
+        }
+
+        if (trimmed.contains("instagram.com") || trimmed.contains("instagr.am")) {
+            val code = parseVideoOrMediaId(trimmed)
+            if (code.isBlank() && !trimmed.contains("/reel/") && !trimmed.contains("/p/") && !trimmed.contains("/share/")) {
+                return@withContext ExtractionResult.Error("URL BREAK / INCOMPLETE: Instagram reel ya post ka pura link paste karein.")
+            }
         }
 
         // 1. Direct media link check (.mp4, .mp3, .mkv, .webm, etc.)

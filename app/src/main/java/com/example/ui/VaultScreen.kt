@@ -1,8 +1,10 @@
 package com.example.ui
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -372,45 +374,92 @@ fun VaultItemCard(
     }
 }
 
+private fun getPlayableUri(context: Context, item: DownloadEntity): Uri? {
+    // 1. Check primary file path
+    val primaryFile = File(item.filePath)
+    if (primaryFile.exists() && primaryFile.length() > 0) {
+        try {
+            return FileProvider.getUriForFile(context, "${context.packageName}.provider", primaryFile)
+        } catch (_: Exception) {}
+    }
+
+    // 2. Check public Download/vakaar folder
+    val fileName = primaryFile.name
+    val publicFile = File(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+        "vakaar/$fileName"
+    )
+    if (publicFile.exists() && publicFile.length() > 0) {
+        try {
+            return FileProvider.getUriForFile(context, "${context.packageName}.provider", publicFile)
+        } catch (_: Exception) {}
+    }
+
+    // 3. Check app external files dir
+    val appLocalFile = File(File(context.getExternalFilesDir(null), "vakaar"), fileName)
+    if (appLocalFile.exists() && appLocalFile.length() > 0) {
+        try {
+            return FileProvider.getUriForFile(context, "${context.packageName}.provider", appLocalFile)
+        } catch (_: Exception) {}
+    }
+
+    // 4. Fallback if it's already a content:// URI string
+    if (item.filePath.startsWith("content://")) {
+        return Uri.parse(item.filePath)
+    }
+
+    return null
+}
+
 private fun playMedia(context: Context, item: DownloadEntity) {
     try {
-        val file = File(item.filePath)
-        val uri: Uri = if (file.exists()) {
-            Uri.fromFile(file)
-        } else {
-            Uri.parse(item.filePath)
+        val uri = getPlayableUri(context, item)
+        if (uri == null) {
+            Toast.makeText(context, "File not accessible: ${item.filePath}", Toast.LENGTH_LONG).show()
+            return
         }
+
+        val mime = if (item.isAudio) "audio/*" else "video/*"
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            val mime = if (item.isAudio) "audio/*" else "video/*"
             setDataAndType(uri, mime)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(Intent.createChooser(intent, "Open with Media Player"))
+
+        val chooser = Intent.createChooser(intent, "Play with Video Player").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "No media player found. Install VLC or MX Player.", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {
-        Toast.makeText(context, "Saved to ${item.filePath}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Cannot play: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
 private fun shareMedia(context: Context, item: DownloadEntity) {
     try {
-        val file = File(item.filePath)
+        val uri = getPlayableUri(context, item)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = if (item.isAudio) "audio/*" else "video/*"
-            if (file.exists()) {
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+            val mime = if (item.isAudio) "audio/*" else "video/*"
+            type = mime
+            if (uri != null) {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } else {
-                putExtra(Intent.EXTRA_TEXT, "Download file at: ${item.filePath}")
+                putExtra(Intent.EXTRA_TEXT, "Media: ${item.title}\nSaved at: ${item.filePath}")
             }
             putExtra(Intent.EXTRA_SUBJECT, item.title)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Downloaded Media"))
+
+        val chooser = Intent.createChooser(shareIntent, "Share Media").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
     } catch (e: Exception) {
-        val shareText = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "File saved in vakaar folder: ${item.title}\n${item.filePath}")
-        }
-        context.startActivity(Intent.createChooser(shareText, "Share File Info"))
+        Toast.makeText(context, "Share error: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }

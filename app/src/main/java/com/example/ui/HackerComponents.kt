@@ -26,10 +26,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -64,6 +67,7 @@ import com.example.ui.theme.CyberGreen
 import com.example.ui.theme.CyberGreenDark
 import com.example.ui.theme.CyberGreenGlow
 import com.example.ui.theme.CyberMagenta
+import com.example.ui.theme.CyberRed
 import com.example.ui.theme.CyberYellow
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
@@ -713,3 +717,173 @@ private fun FormatItemRow(
         }
     }
 }
+
+@Composable
+fun CyberErrorCard(
+    errorTitle: String,
+    errorMessage: String,
+    errorSolution: String,
+    onDismiss: () -> Unit,
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(CutCornerShape(8.dp))
+            .background(CyberCardBg)
+            .border(BorderStroke(1.2.dp, CyberRed), CutCornerShape(8.dp))
+            .padding(14.dp)
+            .testTag("cyber_error_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(CyberRed.copy(alpha = 0.2f))
+                        .border(BorderStroke(1.dp, CyberRed), RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WarningAmber,
+                        contentDescription = "Alert",
+                        tint = CyberRed,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = errorTitle,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = CyberRed,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp,
+                            fontSize = 13.sp
+                        )
+                    )
+                    Text(
+                        text = "ERROR DIAGNOSTICS",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = TextMuted,
+                            fontSize = 9.sp
+                        )
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(28.dp).testTag("btn_dismiss_error")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss error",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Simple human-readable explanation
+        Text(
+            text = errorMessage,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                color = TextPrimary,
+                fontWeight = FontWeight.Medium,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+        )
+
+        if (errorSolution.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    text = "Tip: ",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = CyberYellow,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                )
+                Text(
+                    text = errorSolution,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onRetry != null) {
+                Box(
+                    modifier = Modifier
+                        .clip(CutCornerShape(4.dp))
+                        .background(CyberRed.copy(alpha = 0.2f))
+                        .border(BorderStroke(1.dp, CyberRed), CutCornerShape(4.dp))
+                        .clickable { onRetry() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .testTag("btn_retry_error")
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = CyberRed,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "RETRY",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = CyberRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(CutCornerShape(4.dp))
+                    .background(CyberBlack)
+                    .border(BorderStroke(0.8.dp, CyberCardBorder), CutCornerShape(4.dp))
+                    .clickable { onDismiss() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .testTag("btn_ok_dismiss")
+            ) {
+                Text(
+                    text = "DISMISS",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                )
+            }
+        }
+    }
+}
+

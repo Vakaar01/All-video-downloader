@@ -75,6 +75,7 @@ fun CyberDownloaderScreen(
     val lastDownloadedFile by viewModel.lastDownloadedFile.collectAsStateWithLifecycle()
     val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
     val extractedMedia by viewModel.extractedMedia.collectAsStateWithLifecycle()
+    val appError by viewModel.appError.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -176,6 +177,23 @@ fun CyberDownloaderScreen(
                     isComplete = isExtractionComplete,
                     onClick = { viewModel.onStartExtraction() }
                 )
+
+                // Human-readable Error Diagnostic Alert (URL not found, URL break, private video, network error)
+                AnimatedVisibility(
+                    visible = appError != null,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()
+                ) {
+                    appError?.let { err ->
+                        CyberErrorCard(
+                            errorTitle = err.title,
+                            errorMessage = err.message,
+                            errorSolution = err.solution,
+                            onDismiss = { viewModel.onDismissError() },
+                            onRetry = { viewModel.onRetryLastError() }
+                        )
+                    }
+                }
 
                 // 4. Extraction Progress Line (0 to 100%)
                 AnimatedVisibility(

@@ -12,6 +12,9 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY timestamp DESC")
     fun getAllDownloads(): Flow<List<DownloadEntity>>
 
+    @Query("SELECT * FROM downloads ORDER BY timestamp DESC")
+    suspend fun getAllDownloadsList(): List<DownloadEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDownload(download: DownloadEntity): Long
 

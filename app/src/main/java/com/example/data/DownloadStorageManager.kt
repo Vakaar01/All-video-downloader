@@ -2,6 +2,7 @@ package com.example.data
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -14,6 +15,8 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,14 +51,22 @@ class DownloadStorageManager(private val context: Context) {
         val cleanPlatform = platform.displayName.replace("[^a-zA-Z0-9]".toRegex(), "").lowercase()
         val fileName = "vakaar_${cleanPlatform}_${dateStr}.${format.extension}"
 
-        // Dedicated app folder in storage
-        val vakaarDir = File(context.getExternalFilesDir(null), "vakaar")
-        if (!vakaarDir.exists()) {
-            vakaarDir.mkdirs()
+        // Primary public folder requested by user: /sdcard/Download/vakaar/
+        val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val publicVakaarDir = File(publicDownloadsDir, "vakaar")
+        if (!publicVakaarDir.exists()) {
+            publicVakaarDir.mkdirs()
         }
-        val targetLocalFile = File(vakaarDir, fileName)
+        val targetPublicFile = File(publicVakaarDir, fileName)
 
-        Log.d(tag, "Starting real stream download from: $streamUrl into: ${targetLocalFile.absolutePath}")
+        // Internal backup cache folder in case of Android 11+ direct write restriction
+        val appVakaarDir = File(context.getExternalFilesDir(null), "vakaar")
+        if (!appVakaarDir.exists()) {
+            appVakaarDir.mkdirs()
+        }
+        val appLocalFile = File(appVakaarDir, fileName)
+
+        Log.d(tag, "Initiating download: $fileName from: $streamUrl")
 
         val request = Request.Builder()
             .url(streamUrl)
@@ -70,18 +81,38 @@ class DownloadStorageManager(private val context: Context) {
         val startTime = System.currentTimeMillis()
         var lastProgressUpdateTime = startTime
 
+        // Determine destination stream: try direct public file first, fallback to app local
+        var chosenFile = targetPublicFile
+        var outputStream: OutputStream? = null
+
+        try {
+            outputStream = FileOutputStream(targetPublicFile)
+            chosenFile = targetPublicFile
+        } catch (e: Exception) {
+            Log.w(tag, "Direct public file write restricted, writing to app local first: ${e.message}")
+            outputStream = FileOutputStream(appLocalFile)
+            chosenFile = appLocalFile
+        }
+
         try {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IOException("HTTP error ${response.code}: ${response.message}")
+                    val errorMsg = when (response.code) {
+                        404 -> "URL NOT FOUND / BROKEN LINK: Video server par nahi mila ya delete ho chuka hai (Error 404)."
+                        403, 401 -> "PRIVATE / ACCESS RESTRICTED: Ye video private account ka hai ya login ke bina download nahi ho sakta (Error 403)."
+                        410 -> "URL EXPIRED: Video stream link expire ho chuka hai. Dobara try karein."
+                        429 -> "SERVER BUSY: Too many requests. Kripya 1 minute baad try karein."
+                        in 500..599 -> "SERVER DOWN: Video host server abhi down hai (Error ${response.code})."
+                        else -> "HTTP ERROR ${response.code}: Video server se download nahi ho paya."
+                    }
+                    throw IOException(errorMsg)
                 }
 
-                val body = response.body ?: throw IOException("Empty response body from media server")
+                val body = response.body ?: throw IOException("SERVER ERROR: Empty response from video server")
                 totalBytesExpected = body.contentLength()
 
-                val inputStream = body.byteStream()
-                val outputStream = FileOutputStream(targetLocalFile)
-                val buffer = ByteArray(64 * 1024) // 64KB buffer for fast transfer
+                val inputStream: InputStream = body.byteStream()
+                val buffer = ByteArray(64 * 1024)
                 var bytesRead: Int
 
                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
@@ -89,7 +120,6 @@ class DownloadStorageManager(private val context: Context) {
                     totalBytesRead += bytesRead
 
                     val now = System.currentTimeMillis()
-                    // Throttle UI progress updates to every 120ms to avoid UI stutter
                     if (now - lastProgressUpdateTime > 120 || totalBytesRead == totalBytesExpected) {
                         val elapsedSec = (now - startTime).coerceAtLeast(1) / 1000.0
                         val currentSpeedMbps = (totalBytesRead / (elapsedSec * 1024.0 * 1024.0))
@@ -97,7 +127,7 @@ class DownloadStorageManager(private val context: Context) {
                         val percent = if (totalBytesExpected > 0) {
                             ((totalBytesRead * 100) / totalBytesExpected).toInt().coerceIn(0, 99)
                         } else {
-                            50 // Indeterminate stream
+                            50
                         }
 
                         onProgress(percent, totalBytesRead, totalBytesExpected, currentSpeedMbps)
@@ -110,17 +140,23 @@ class DownloadStorageManager(private val context: Context) {
                 inputStream.close()
             }
         } catch (e: Exception) {
-            // Delete corrupt incomplete file if download failed
-            if (targetLocalFile.exists() && targetLocalFile.length() == 0L) {
-                targetLocalFile.delete()
+            try { outputStream?.close() } catch (_: Exception) {}
+            if (chosenFile.exists() && chosenFile.length() == 0L) {
+                chosenFile.delete()
             }
-            Log.e(tag, "Download failed: ${e.message}", e)
-            throw IOException("Download failed: ${e.message ?: "Connection error"}")
+            Log.e(tag, "Stream fetch failed: ${e.message}", e)
+            val friendlyMsg = when (e) {
+                is java.net.UnknownHostException -> "NO INTERNET: Internet connection nahi mil raha hai. Wi-Fi ya Mobile Data check karein."
+                is java.net.SocketTimeoutException -> "CONNECTION TIMEOUT: Video server ne response nahi diya. Internet speed check karein."
+                is java.net.ConnectException -> "SERVER UNREACHABLE: Video server se connection fail ho gaya."
+                else -> e.message ?: "Download connection interrupted"
+            }
+            throw IOException(friendlyMsg)
         }
 
-        val downloadedFileSize = targetLocalFile.length()
+        val downloadedFileSize = chosenFile.length()
         if (downloadedFileSize == 0L) {
-            throw IOException("Download failed: received 0 bytes from server")
+            throw IOException("URL NOT FOUND / EMPTY FILE: Server se koi data nahi mila. Video link check karein.")
         }
 
         // Final 100% progress notification
@@ -128,46 +164,72 @@ class DownloadStorageManager(private val context: Context) {
         val avgSpeedMbps = (downloadedFileSize / (totalElapsedSec * 1024.0 * 1024.0))
         onProgress(100, downloadedFileSize, downloadedFileSize, avgSpeedMbps)
 
-        // Mirror to Android public Downloads/vakaar directory via MediaStore
-        var publicPath = targetLocalFile.absolutePath
+        // Make sure file is placed in public Downloads/vakaar folder and visible to user
+        var publicFinalPath = targetPublicFile.absolutePath
+
+        // 1. If we downloaded to appLocalFile, copy it to targetPublicFile if possible
+        if (chosenFile == appLocalFile) {
+            try {
+                if (!publicVakaarDir.exists()) publicVakaarDir.mkdirs()
+                appLocalFile.copyTo(targetPublicFile, overwrite = true)
+                publicFinalPath = targetPublicFile.absolutePath
+            } catch (e: Exception) {
+                Log.w(tag, "Direct copy to public folder failed: ${e.message}")
+            }
+        }
+
+        // 2. Also register in MediaStore.Downloads with RELATIVE_PATH = "Download/vakaar" (Scoped Storage compliant for Android 10+)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                     put(MediaStore.MediaColumns.MIME_TYPE, format.mimeType)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/vakaar")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
-                val contentUri = if (format.isAudio) {
-                    MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                } else {
-                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                }
+                // MediaStore.Downloads handles Download/ relative directory without throwing IllegalArgumentException
+                val contentUri = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                 val uri: Uri? = context.contentResolver.insert(contentUri, contentValues)
                 if (uri != null) {
                     context.contentResolver.openOutputStream(uri)?.use { out ->
-                        targetLocalFile.inputStream().use { input ->
+                        chosenFile.inputStream().use { input ->
                             input.copyTo(out)
                         }
                     }
-                    publicPath = "/sdcard/Download/vakaar/$fileName"
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    context.contentResolver.update(uri, contentValues, null, null)
+                    publicFinalPath = targetPublicFile.absolutePath
                 }
-            } else {
-                @Suppress("DEPRECATION")
-                val publicDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "vakaar")
-                if (!publicDir.exists()) publicDir.mkdirs()
-                val destFile = File(publicDir, fileName)
-                targetLocalFile.copyTo(destFile, overwrite = true)
-                publicPath = destFile.absolutePath
             }
         } catch (e: Exception) {
-            Log.e(tag, "Could not mirror to public MediaStore: ${e.message}")
+            Log.e(tag, "MediaStore.Downloads indexing error: ${e.message}")
+        }
+
+        // 3. Scan file so system media scanner immediately indexes it
+        try {
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(publicFinalPath, targetPublicFile.absolutePath),
+                arrayOf(format.mimeType),
+                null
+            )
+        } catch (e: Exception) {
+            Log.w(tag, "MediaScanner scan error: ${e.message}")
+        }
+
+        // Keep a copy in app local storage as well for guaranteed FileProvider access
+        if (chosenFile == targetPublicFile && !appLocalFile.exists()) {
+            try {
+                targetPublicFile.copyTo(appLocalFile, overwrite = true)
+            } catch (_: Exception) {}
         }
 
         val formattedSize = formatFileSize(downloadedFileSize)
         val displayTitle = if (!mediaTitle.isNullOrBlank()) {
             mediaTitle.take(45)
         } else {
-            "${platform.displayName} Video (${format.title})"
+            "${platform.displayName} Media"
         }
 
         DownloadEntity(
@@ -177,7 +239,7 @@ class DownloadStorageManager(private val context: Context) {
             formatName = format.title,
             fileSizeBytes = downloadedFileSize,
             formattedSize = formattedSize,
-            filePath = publicPath,
+            filePath = publicFinalPath,
             timestamp = timestamp,
             isAudio = format.isAudio
         )
